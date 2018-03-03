@@ -1,13 +1,30 @@
 library(jsonlite)
+library(data.table)
 
-questions<-fromJSON("Questions_gouvernement_XIV.json")
-acteurs<-fromJSON("AMO10_deputes_actifs_mandats_actifs_organes_XIV.json")
+q<-fromJSON("Questions_gouvernement_XIV.json")
+q<-q$questionsGvt$question
+acteurs<-fromJSON("AMO30_tous_acteurs_tous_mandats_tous_organes_historique.json")
+acteurs <- acteurs$export$acteurs$acteur
+pattern <- "</?\\w+((\\s+\\w+(\\s*=\\s*(?:\".*?\"|'.*?'|[^'\">\\s]+))?)+\\s*|\\s*)/?>"
 
-acteursDF<-acteurs$export$acteurs$acteur$etatCivil
+q1<-data.table(
+  uid=q$uid,
+  q$identifiant,
+  rubrique=q$indexationAN$rubrique,
+  teteAnalyse=q$indexationAN$teteAnalyse,
+  motsCles=unlist(lapply(q$indexationAN$analyses$analyse, FUN=function(x)paste0(x,collapse = ","))),
+  q$auteur$identite,
+  groupe=q$auteur$groupe,
+  ministre=q$minInt$abrege,
+  #gsub(pattern, "\\1", q$textesReponse$texteReponse$texte),
+  dateQuestion=q$cloture$dateCloture)
 
-index<-questions$questionsGvt$question$indexationAN
-auteur<-questions$questionsGvt$question$auteur
-textes<-questions$questionsGvt$question$textesReponse
+acteurs1<-data.table(acteurRef=acteurs$uid$`#text`, 
+                     acteurs$etatCivil$ident,
+                     acteurs$profession$socProcINSEE,
+                     acteurs$profession$libelleCourant)
 
 
-table(index$rubrique)
+data<-merge(q1, acteurs1, by="acteurRef")
+
+rm(list=c("pattern", "acteurs", "acteurs1", "q", "q1"))
