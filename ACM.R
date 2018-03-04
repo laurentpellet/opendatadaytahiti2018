@@ -1,9 +1,12 @@
-library(data.table)
 library(FactoMineR)
 library(plyr)
-library(scale)
+library(scales)
+library(ggplot2)
+library(ggrepel)
 
-graphMCA <- function(MCA,axes=c(1,2),HC=NULL,classeName=NULL,cos2min=0.05,jit=NULL, alpha=0.2,
+
+graphMCA <- function(MCA,axes=c(1,2),HC=NULL,classeName=NULL,cos2min=0.05,cos2min.ind=0.05,
+                     jit=NULL, alpha=0.2,
                      titre="Analyse des Correspondances Multiples (ACM)",
                      sousTitre=sprintf("La qualité de représentation doit être supérieure à %s pour que les modalités figurent le graphique.",percent(cos2min))){
   # correction de Benzecri 1979
@@ -24,6 +27,8 @@ graphMCA <- function(MCA,axes=c(1,2),HC=NULL,classeName=NULL,cos2min=0.05,jit=NU
   DT.ind <- data.table(Id=rownames(MCA$ind$coord),Coord=MCA$ind$coord[,axes],
                        Contrib=MCA$ind$contrib[,axes],Cos2=MCA$ind$cos2[,axes])
   setnames(DT.ind,names(DT.ind),c("Id","coord.1","coord.2","contrib.1","contrib.2","cos2.1","cos2.2"))
+  DT.ind[,label:=Id]
+  DT.ind[cos2.1+cos2.2<cos2min.ind,label:=""]
   
   DT.quali[variable=="Active" & cos2.1+cos2.2<cos2min,label:=""]
   DT.quali[,contrib:=""]
@@ -55,6 +60,7 @@ graphMCA <- function(MCA,axes=c(1,2),HC=NULL,classeName=NULL,cos2min=0.05,jit=NU
                                size=cos2.1+cos2.2,
                                # size=ifelse(variable=="Active",cos2.1+cos2.2,max(cos2.1+cos2.2)/2),
                                color=factor(contrib)),inherit.aes = F) +
+    geom_text_repel(aes(label=label,size=cos2.1+cos2.2),color="blue") +
     scale_color_manual(breaks=c(paste("axe",axes[1]),paste("axe",axes[2]),
                                 paste("axes",axes[1],"et",axes[2]),"Ne contribue pas"),
                        values = c("black","darkgreen","darkred","darkblue","blue")) +
@@ -80,13 +86,23 @@ graphMCA <- function(MCA,axes=c(1,2),HC=NULL,classeName=NULL,cos2min=0.05,jit=NU
   return(g)
 } 
 
-# Regroupement de classe pour l'ACM
-JeuPourMCA[,variable2:= mapvalues(variable,from = c("",""),to=c("",""))]
+
+data_rubrique<-data[,.N,by=rubrique][order(N,decreasing = T)][,.(rubrique,cumsum(N))]
+data2<-data[rubrique %in% data_rubrique[1:40,rubrique]]
+data_ministre<-data2[,.N,by=.(groupe.developpe,ministre)]
+data_ministre[,q_quintile:=cut(N,breaks = c(1,2,6,max(N)),
+                               include.lowest = T,ordered_result = T,
+                               dig.lab = 5,right = F)]
+data_ministre2<-dcast(data_ministre,ministre~groupe.developpe,value.var = "q_quintile")
+
+data_ministre2[,(names(data_ministre2)[-1]):=lapply(.SD,function(x) ifelse(is.na(x),0,as.character(x))),
+               .SDcols=names(data_ministre2)[-1]]
 
 ## Analyse multidimensionnelle (ACM)----------------
-data_MCA <- MCA(
-  data.frame(JeuPourMCA[,.SD,.SDcols=c()],row.names =JeuPourMCA[,IDIndividu]),
-  quali.sup =,ncp = 5,graph = T)
+data_ministreDF<-data.frame(data_ministre2[,lapply(.SD,factor),.SDcols=names(data_ministre2)[-1]],
+                            row.names = data_ministre2[,ministre])
+data_MCA <- MCA(data_ministreDF,graph = T)
+
 summary(data_MCA)
 barplot(data_MCA$eig[,1],main="Eigenvalues",names.arg=1:nrow(data_MCA$eig))
 
@@ -94,18 +110,7 @@ barplot(data_MCA$eig[,1],main="Eigenvalues",names.arg=1:nrow(data_MCA$eig))
 vp.corrige<-sapply(data_MCA$eig[data_MCA$eig[,1]>1/length(data_MCA$call$quali),1],FUN=function(x) (length(data_MCA$call$quali)/(length(data_MCA$call$quali)-1))^2*(x-1/length(data_MCA$call$quali))^2)
 print(percent(vp.corrige/sum(vp.corrige)))
 
-# Classification 
-sum(data_MCA$eig[,1]>1/length(data_MCA$call$quali))
-# On retient 10 dimensions (supérieure à la moyenne) pour la classification (reste considéré comme du bruit)
-data_HC<-HCPC(data_MCA, graph = T)
-# data_HC<-HCPC(data_MCA,nb.clust=4, graph = F)
-
-print(data_HC$desc.axes)
-print(data_HC$desc.var)
-
 ## Sorties graphiques----------------
 
-gMCA <- graphMCA(data_MCA,HC=data_HC,axes=c(1,2),cos2min = 0.05,jit=0.05,alpha=0.15,
-                 classeName = c("","","",""),
+graphMCA(data_MCA,axes=c(1,2),cos2min = 0.3,cos2min.ind = 0.3,jit=0.05,alpha=0.5,
                  titre = "",sousTitre = "")
-print(gMCA)
